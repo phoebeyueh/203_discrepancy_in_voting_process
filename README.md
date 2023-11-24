@@ -1,5 +1,5 @@
 ## 👩‍🎓 About 
-I completed this final project as part of the Introduction to Statistics class at UC Berkeley alongside my peers Eliot Arntz, Brandon Law, and Rina Palta. I want to express my gratitude for their valuable contributions to the project!
+I completed this project as part of the Introduction to Statistics class at UC Berkeley alongside my peers Eliot Arntz, Brandon Law, and Rina Palta. I want to express my gratitude for their valuable contributions to the project!
 
 ## 🇺🇸 Introduction
 
