@@ -1,0 +1,196 @@
+---
+title: 'Lab 1 Part 2: Analyzing Voting Difficulty'
+author: "DATASCI203 Section 1 Team 5"
+output:
+  pdf_document:
+    toc: false
+    number_sections: true
+urlcolor: blue
+fontsize: 10pt
+---
+
+```{=tex}
+\newpage
+\setcounter{page}{1}
+```
+```{r load packages and set options, include=FALSE}
+library(tidyverse) 
+library(magrittr)
+library(knitr)
+library(patchwork)
+library(moments)
+library(extrafont)
+font_import(pattern = "Times New Roman")
+
+theme_set(theme_bw())
+
+options(tinytex.verbose = TRUE)
+knitr::opts_chunk$set(echo=FALSE, message=FALSE)
+```
+
+```{r Data Wrangling, include=FALSE}
+# Load Data
+anes <- read.csv('anes_pilot_2022_csv_20221214.csv')
+
+# Filter the dataset to select records with non-blank values in the "weight" column
+anes <- anes %>%
+  filter(!is.na(weight) & weight != "")
+
+# Check the number of records in the filtered dataset
+nrow(anes)
+# Filter the dataset to select voters who registered to vote at the current or a different address
+anes <- anes %>%
+  filter(reg %in% c(1, 2))
+
+# Check the number of records in the filtered dataset
+nrow(anes)
+# Create a new column named "Party" with a default value of "Neither"
+anes$Party <- "Neither"
+
+#  If any of the columns pid1d, pid2d, pid1r, or pid2r are 1 (Democrat) or 2(Republican),
+    # or pidlean is 2 (Closer to the Democratic Party), then code as 1 (Democrat).
+anes$Party[anes$pid1d %in% c(1, 2) | anes$pid2d %in% c(1, 2) | anes$pidlean == 2] <- "Democrat"
+anes$Party[anes$pid1r %in% c(1, 2) | anes$pid2r %in% c(1, 2) | anes$pidlean == 1] <- "Republican"
+
+# Drop the original party-related columns
+anes <- anes[, !(names(anes) %in% c("pid1d", "pid2d", "pid1r", "pid2r", "pidlean"))]
+
+# Check the unique values in the "Party" column
+unique(anes$Party)
+# Create a new boolean column 'difficulty_voting'
+library(dplyr)
+# Create a Likert Scale variable to track voters difficulty
+likert_scale <- function(df) {
+  df <- df %>%
+    mutate(likert_scale_column = case_when(
+      (votehard == 1 | rowSums(df[paste0('vharder_', 1:11)]) == 0 | vharder_12 == 1 | waittime == 1 | triptime == 1) ~ 1,
+      (votehard == 2 | rowSums(df[paste0('vharder_', 1:11)]) == 1 | waittime == 2 | triptime == 2) ~ 2,
+      (votehard == 3 | rowSums(df[paste0('vharder_', 1:11)]) == 2 | waittime == 3 | triptime == 3) ~ 3,
+      (votehard == 4 | rowSums(df[paste0('vharder_', 1:11)]) == 3 | waittime == 4 | triptime == 4) ~ 4,
+      (votehard == 5 | rowSums(df[paste0('vharder_', 1:11)]) > 3 | waittime == 5 | triptime == 5) ~ 5
+    ))
+  
+  return(df)
+}
+
+anes <- likert_scale(anes)
+# Create a new column 'difficulty_binary' from likert scale data
+anes$difficulty_binary <- ifelse(anes$likert_scale_column >= 2, 1, 0)
+
+# Loop through the 'vharder' columns
+for(i in 0:11) {
+  # Create the column name
+  column_name <- paste("vharder", i, sep="_")
+  
+  # Update 'difficulty_binary' for respondents who marked any difficulties
+  anes$difficulty_binary[anes[[column_name]] == 1 & anes$difficulty_binary == 0] <- 1
+}
+
+
+# View the resulting data frame with the 'voting_difficulty' variable
+unique(anes$difficulty_binary)
+```
+
+# Importance and Context
+
+While every U.S. citizen over the age of 18 has the right to vote, many factors can impede individuals from exercising their voting rights. In recent elections, political parties have argued over voting accessibility including mail-in ballots and whether to close polling places while voters are still in line. Generally, Democrats [have argued for more accessibility and fewer voting restrictions](https://www.pewresearch.org/politics/2021/04/22/republicans-and-democrats-move-further-apart-in-views-of-voting-access/), while Republicans have argued for the opposite. This alignment flows from [how the parties see voting access benefiting them electorally](https://www.npr.org/2020/06/12/873878423/voting-and-elections-divide-republicans-and-democrats-like-little-else-heres-why). Since the 2020 election, when many jurisdictions [increased access](https://www.nytimes.com/2020/10/31/us/politics/early-voting.html) to things like mail-in ballots, the debate has intensified. And many states have since [rolled back those changes](https://www.reuters.com/graphics/USA-ELECTION/VOTING-RESTRICTIONS/znvnbdjbkvl/index.html). In this context, our central question is,
+
+```{=tex}
+\begin{quote}
+  \textbf {Do Democratic voters or Republican voters experience more difficulty voting?}
+\end{quote}
+```
+By researching this question, we hope to add to the discussion surrounding discrepancies in the voting process. We hope that highlighting access issues in elections will help enable equal voting rights for all U.S citizens.
+
+# Data and Methodology
+
+Our analysis is based on the 2022 data from the American National Election Studies (ANES), a widely respected national survey of voters conducted before and after every presidential election.
+
+The data cleaning process included defining variables of interest including "voter," a voter's political party, and "difficulty" in voting. From the original 1585 entries of 18+ citizens, we narrowed down the result to a sample of 1308 by focusing on weighted entries intended to represent the population. We defined voters as registered voters in the 'reg' column . We did not use historical voting turnout to define a voter, because some voters may face obstacles preventing them from voting, which is relevant to our research.
+
+To determine political alignment, we relied on survey questions captured under the 'pid1d', 'pid2d', 'pidlr', 'pidlean', and 'pid2r' columns. We classified political affiliation by any voter who identified as belonging to a party or as leaning closer to the Republican or Democratic party. Anyone who said they leaned towards "Neither" was excluded from the sample. From Table 1 below, we recorded a total of 567 Democratic, 577 Republican voters, respectively representing 44% and 45% of the sample. The 164 non-affiliated members made up approximately 13% of the sample.
+
+```{r make summary table, include=FALSE}
+# Create a summary table
+summary_table <- table(anes$Party)
+
+summary_table2 <- table(anes$difficulty_binary)
+# Print the summary table
+print(summary_table2)
+```
+
+```{r summary-table, fig.pos= "!b",fig.cap = NULL}
+kable(summary_table,
+  caption = "Self-Reported Number of Registered voters based on Party Affiliation", 
+  col.names = c("Party", "Registered Voters") 
+)
+```
+
+To measure difficulty voting and capture voters who did not cast a ballot, we developed a binary variable (1 = did experience difficulty; 0 = did not experience difficulty) using a set of ANES survey questions. All voters who cast a ballot were asked: "How difficult was it for you to vote?". Anyone who experienced any difficulty (2-5) was coded as a 1. Moreover, other respondents including non-voters that experienced any of the 11 potential voting difficulties (vharder_0 through 11) were coded as 1. We used two additional questions (waittime, triptime) to code anyone who said they had to wait in line longer than 30 minutes or travel more than 15 minutes each way to reach their polling place as 1/'did experience difficulty,' as the time commitment needed to vote exceeded a working person's usual lunch break. All other respondents were coded as a 0. From Figure 1, we observed that Democrats had fewer voters falling into the "did not experience difficulty" compared to Republicans.
+
+```{r make bar chart,include=FALSE}
+#Create a bar chart 
+anes_counts <- anes %>%
+  filter(Party %in% c('Republican', 'Democrat')) %>% 
+  group_by(difficulty_binary, Party) %>%
+  summarise(count = n())
+
+grouped_bar_chart <- 
+  ggplot(data = anes_counts, aes(x = difficulty_binary, y = count, fill = Party)) +
+  geom_bar(stat = "identity", position = "dodge") +  
+  geom_text(aes(label = count), position = position_dodge(width = 0.9),vjust = -0.5, size = 3,family = "Times New Roman") +
+  labs(x = "Voting Difficulty", y = "# of Voters") +
+  scale_x_continuous(breaks = c(0,1), labels = c("0 = did not experience difficulty","1 = did experience difficulty")) +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme_minimal()+
+  theme(text = element_text(size = 11, family = "Times New Roman"))+
+  theme(axis.title.x = element_text(margin = margin(t = 8)))
+```
+
+```{r plot2, fig.cap='Bar Chart of Voting Difficulty by Party Affiliations', fig.align = "center", fig.height = 4}
+(grouped_bar_chart)
+```
+
+To further evaluate the significance of the size difference between Democratic and Republican voters' difficulty, we used the two-sample t-test, a robust statistical test for metric data.
+
+Our null hypothesis was that there was no difference in voting difficulty between Democratic and Republican voters. In the context of the two-sample t-test, our null hypothesis was that:
+
+```{=tex}
+\begin{quote}
+  \textit
+  {For R being the number of Republicans who experienced difficulty voting and D being the number of Democrats who experienced difficulty voting,}
+  \textbf {E[R] = E[D]} 
+\end{quote}
+```
+To produce reliable inference from the two-sample t-test, we must meet three assumptions.
+
+**Assumption 1**: Our variables must be measured on a metric scale. In this case, we have created a Bernouli indicator variable to represent whether or not a single person in our sample experienced difficulty voting. Our resulting binomial variables (R, D) consist of counts, which are measured on a metric scale, so we meet this assumption.
+
+**Assumption 2**: Our data must be IID. The ANES 2022 pilot uses a panel of individuals from the YouGov platform which could lead to the possibility of introducing dependencies. For example, participants may tell relatives or friends about YouGov, resulting in a cluster of individuals that give similar responses in specific areas. YouGov users presumably have internet access, which means people who are unhoused or otherwise experience internet access issues may not be represented. Nevertheless, YouGov claims to have millions of users, and the ANES weights its responses to better reflect the voter population, so we believe performing this test on this data will be useful for research purposes.
+
+**Assumption 3**: There must be no major deviations from normality, considering our sample size. Since we have binomial variables, our theoretical density curves for E[R] and E[D] approach the normal distribution as the sample size increases. We have a large sample size (567 Democrats and 577 Republicans), so the Central Limit Theorem allows us to presume our sample values for E[R] and E[D] come from approximately normal distributions.
+
+```{r}
+democratic_data <- anes %>%
+  filter(Party == "Democrat")
+republican_data <- anes %>%
+  filter(Party == "Republican")
+```
+
+# Results
+
+```{r ttest, echo=TRUE}
+# Perform a two-sample t-test
+result <- t.test(republican_data$difficulty_binary, democratic_data$difficulty_binary)
+result
+```
+
+The Welch Two Sample t-test on our data yielded a p-value of .025, well below the .05 threshold for statistical significance. Our t-score of -2.24 with 1136 degrees of freedom suggests that the difference in means is fairly large, though not huge, relative to the variability within the groups and its negative nature suggests that Democratic voters experience more difficulty in voting compared to Republican voters.
+
+In practical terms, approximately 29 percent of Republicans in our sample experienced some difficulty voting, compared to 35 percent of Democrats, a 6-percent difference. Considering how close elections can be, a 6-percent difference could impact the outcome of an election if even a modest percentage of voters who experience difficulty voting end up not casting a ballot.
+
+Another practical significance of our findings is that what could be considered a large percentage of the electorate--nearly one third of Republicans and over a third of Democrats in our sample--experienced barriers to casting their votes. Those numbers may indicate the need for further study to address cross-partisan voting access issues.
+
+# Discussion
+
+In this study, we sought to answer the research question: \"Do Democratic voters or Republican voters experience more difficulty voting?\" To address this question, we conducted a two-sample T-test to determine the significance of the differences in difficulty voting between Democratic and Republican voters. Our work has limitations: the research question is complex and there are many ways to evaluate the data, though we believe we have chosen a fair and appropriate methodology. Various factors could also have affected our sample. A possible limitation is if respondents within the same community have similar experiences, it may motivate similar individuals to participate potentially creating a clustering of similar opinions. Moreover, regional differences, voting laws, and individual experiences can all impact people\'s perceptions of their voting experience. We cannot account for all the difficulties voters may have experienced that were not captured by the ANES survey. Nor can we account for people who had similar voting experiences, but answered survey questions about them differently. And finally, our chosen variables account only for whether or not a person experienced any difficulty voting, not the degree to which they experienced difficulty voting, so we cannot determine from our test whether one group tended to experience more extreme difficulties than the other.
